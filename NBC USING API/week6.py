@@ -1,64 +1,68 @@
+import streamlit as st
 import pandas as pd
 import numpy as np
 
-# Function to prompt user for binary input
-def get_binary_input(prompt):
-    while True:
-        response = input(prompt + " (Enter 'yes' or 'no'): ").strip().lower()
-        if response in {'yes', 'no'}:
-            return 1 if response == 'yes' else 0
-        else:
-            print("Invalid input! Please enter 'yes' or 'no'.")
+# Streamlit interface
+st.title("Sentiment Analysis with Naive Bayes")
 
-# Function to prompt user for numerical input
-def get_numerical_input(prompt):
-    while True:
-        response = input(prompt + ": ").strip()
-        if response.isdigit():
-            return int(response)
-        else:
-            print("Invalid input! Please enter a numerical value.")
+# Upload CSV
+uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+if uploaded_file is not None:
+    msg = pd.read_csv(uploaded_file, names=['message', 'label'])
+    st.write("Total Instances of Dataset: ", msg.shape[0])
 
-# Function to calculate probability of having Corona based on input
-def calculate_probability(evidence):
-    # Simple mock-up probabilities for demonstration purposes
-    # In a real-world scenario, these should be derived from a trained Bayesian network
-    base_prob = 0.05  # Base probability of having Corona without any evidence
-    if evidence['Corona_test'] == 1:
-        return 0.9  # High probability if tested positive
+    msg['labelnum'] = msg.label.map({'pos': 1, 'neg': 0})
 
-    # Adjust the probability based on evidence (This is a simplified example)
-    prob = base_prob
-    if evidence['Fever'] == 1:
-        prob += 0.1
-    if evidence['Cough'] == 1:
-        prob += 0.1
-    if evidence['Breathlessness'] == 1:
-        prob += 0.15
-    if evidence['Travel_history'] == 1:
-        prob += 0.1
-    if evidence['Age'] > 60:
-        prob += 0.1
+    X = msg.message
+    y = msg.labelnum
 
-    return min(prob, 1.0)  # Ensure the probability does not exceed 1
+    # Split data into training and testing sets
+    train_size = int(0.8 * len(X))
+    Xtrain, Xtest = X[:train_size], X[train_size:]
+    ytrain, ytest = y[:train_size], y[train_size:]
 
-# Main function to run the script
-def main():
-    print("Bayesian Network for Coronavirus Diagnosis")
+    # Tokenization
+    words = ' '.join(Xtrain).split()
+    vocabulary = list(set(words))
+    vocab_len = len(vocabulary)
 
-    # Collect evidence from user input
-    evidence = {
-        'Fever': get_binary_input("Do you have fever?"),
-        'Cough': get_binary_input("Do you have cough?"),
-        'Breathlessness': get_binary_input("Do you experience breathlessness?"),
-        'Corona_test': get_binary_input("Have you taken a coronavirus test?"),
-        'Travel_history': get_binary_input("Have you traveled recently?"),
-        'Age': get_numerical_input("What is your age?")
-    }
+    # Count words for each class
+    word_counts_pos = np.zeros(vocab_len)
+    word_counts_neg = np.zeros(vocab_len)
 
-    # Calculate the probability of having Corona
-    prob_corona = calculate_probability(evidence)
-    print(f"\nProbability of having Coronavirus: {prob_corona * 100:.2f}%")
+    for message, label in zip(Xtrain, ytrain):
+        for word in message.split():
+            if label == 1:
+                word_counts_pos[vocabulary.index(word)] += 1
+            else:
+                word_counts_neg[vocabulary.index(word)] += 1
 
-if __name__ == "__main__":
-    main()
+    # Calculate probabilities
+    prior_pos = sum(ytrain) / len(ytrain)
+    prior_neg = 1 - prior_pos
+
+    word_probs_pos = (word_counts_pos + 1) / (sum(word_counts_pos) + vocab_len)
+    word_probs_neg = (word_counts_neg + 1) / (sum(word_counts_neg) + vocab_len)
+
+    # Predict function
+    def predict(message):
+        pos_score = np.log(prior_pos)
+        neg_score = np.log(prior_neg)
+        for word in message.split():
+            if word in vocabulary:
+                pos_score += np.log(word_probs_pos[vocabulary.index(word)])
+                neg_score += np.log(word_probs_neg[vocabulary.index(word)])
+        return 1 if pos_score > neg_score else 0
+
+    # Predictions
+    predictions = [predict(message) for message in Xtest]
+
+    # Display predictions
+    st.write("Predictions:")
+    for doc, p in zip(Xtest, predictions):
+        p = 'pos' if p == 1 else 'neg'
+        st.write("%s -> %s" % (doc, p))
+
+    # Calculate accuracy
+    accuracy = sum(predictions == ytest) / len(ytest)
+    st.write("Accuracy: ", accuracy)
